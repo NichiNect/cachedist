@@ -19,7 +19,9 @@ func main() {
 
 	log.Printf("Starting cachedist node %s...", cfg.NodeID)
 
-	c := cache.NewSimpleCache()
+	c := cache.NewShardedCache(cfg.NumShards, cfg.MaxItems, cfg.TTLCleanup)
+	defer c.Stop()
+	
 	srv := server.NewServer(c)
 
 	httpServer := &http.Server{

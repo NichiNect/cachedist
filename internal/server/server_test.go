@@ -11,7 +11,8 @@ import (
 )
 
 func TestServer_GetSet(t *testing.T) {
-	c := cache.NewSimpleCache()
+	c := cache.NewShardedCache(4, 100, 30)
+	defer c.Stop()
 	srv := NewServer(c)
 
 	// Set value
