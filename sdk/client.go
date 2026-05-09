@@ -20,7 +20,12 @@ func NewClient(nodeAddresses []string) *Client {
 	httpClients := make(map[string]*http.Client)
 
 	for _, addr := range nodeAddresses {
-		ring.AddNode(addr, addr) // using address as nodeID
+		// Convert HTTP address to GRPC address to match the server's HashRing NodeID
+		// This ensures the SDK and all Servers have the exact same HashRing mapping
+		grpcAddr := strings.Replace(addr, "700", "800", 1)
+		grpcAddr = strings.Replace(grpcAddr, "localhost", "127.0.0.1", 1)
+		
+		ring.AddNode(grpcAddr, addr) // using grpcAddr as NodeID, but storing HTTP addr for the client to hit
 		httpClients[addr] = &http.Client{
 			Timeout: 5 * time.Second,
 		}
@@ -45,108 +50,133 @@ type apiResponse struct {
 }
 
 func (c *Client) Set(key, value string, ttl int) error {
-	nodeAddr := c.ring.GetNode(key)
-	if nodeAddr == "" {
+	nodes := c.ring.GetNodes(key, 2)
+	if len(nodes) == 0 {
 		return fmt.Errorf("no nodes available")
 	}
 
-	client := c.httpClients[nodeAddr]
-	url := fmt.Sprintf("http://%s/set", nodeAddr)
+	var lastErr error
+	for _, nodeAddr := range nodes {
+		client := c.httpClients[nodeAddr]
+		url := fmt.Sprintf("http://%s/set", nodeAddr)
 
-	reqBody := setRequest{Key: key, Value: value, TTL: ttl}
-	reqData, _ := json.Marshal(reqBody)
+		reqBody := setRequest{Key: key, Value: value, TTL: ttl}
+		reqData, _ := json.Marshal(reqBody)
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(reqData))
-	if err != nil {
-		return err
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(reqData))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			var apiResp apiResponse
+			json.NewDecoder(resp.Body).Decode(&apiResp)
+			lastErr = fmt.Errorf("failed to set key, status: %d, error: %s", resp.StatusCode, apiResp.Error)
+			continue
+		}
+
+		return nil
 	}
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		var apiResp apiResponse
-		json.NewDecoder(resp.Body).Decode(&apiResp)
-		return fmt.Errorf("failed to set key, status: %d, error: %s", resp.StatusCode, apiResp.Error)
-	}
-
-	return nil
+	return fmt.Errorf("set failed on all replicas. last error: %w", lastErr)
 }
 
 func (c *Client) Get(key string) (string, bool, error) {
-	nodeAddr := c.ring.GetNode(key)
-	if nodeAddr == "" {
+	nodes := c.ring.GetNodes(key, 2)
+	if len(nodes) == 0 {
 		return "", false, fmt.Errorf("no nodes available")
 	}
 
-	client := c.httpClients[nodeAddr]
-	url := fmt.Sprintf("http://%s/get?key=%s", nodeAddr, key)
+	var lastErr error
+	for _, nodeAddr := range nodes {
+		client := c.httpClients[nodeAddr]
+		url := fmt.Sprintf("http://%s/get?key=%s", nodeAddr, key)
 
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", false, err
-	}
-	defer resp.Body.Close()
+		resp, err := client.Get(url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return "", false, nil
-	}
+		if resp.StatusCode == http.StatusNotFound {
+			return "", false, nil
+		}
 
-	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode != http.StatusOK {
+			var apiResp apiResponse
+			json.NewDecoder(resp.Body).Decode(&apiResp)
+			lastErr = fmt.Errorf("failed to get key, status: %d, error: %s", resp.StatusCode, apiResp.Error)
+			continue
+		}
+
 		var apiResp apiResponse
-		json.NewDecoder(resp.Body).Decode(&apiResp)
-		return "", false, fmt.Errorf("failed to get key, status: %d, error: %s", resp.StatusCode, apiResp.Error)
+		if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+			lastErr = err
+			continue
+		}
+
+		if !apiResp.OK {
+			lastErr = fmt.Errorf("api error: %s", apiResp.Error)
+			continue
+		}
+
+		if valStr, ok := apiResp.Data.(string); ok {
+			return valStr, true, nil
+		}
+		
+		lastErr = fmt.Errorf("unexpected data format")
 	}
 
-	var apiResp apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return "", false, err
-	}
-
-	if !apiResp.OK {
-		return "", false, fmt.Errorf("api error: %s", apiResp.Error)
-	}
-
-	// Assuming the value is a string based on server implementation
-	if valStr, ok := apiResp.Data.(string); ok {
-		return valStr, true, nil
-	}
-	
-	return "", false, fmt.Errorf("unexpected data format")
+	return "", false, fmt.Errorf("get failed on all replicas. last error: %w", lastErr)
 }
 
 func (c *Client) Delete(key string) error {
-	nodeAddr := c.ring.GetNode(key)
-	if nodeAddr == "" {
+	nodes := c.ring.GetNodes(key, 2)
+	if len(nodes) == 0 {
 		return fmt.Errorf("no nodes available")
 	}
 
-	client := c.httpClients[nodeAddr]
-	url := fmt.Sprintf("http://%s/delete?key=%s", nodeAddr, key)
+	var lastErr error
+	for _, nodeAddr := range nodes {
+		client := c.httpClients[nodeAddr]
+		url := fmt.Sprintf("http://%s/delete?key=%s", nodeAddr, key)
 
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		return err
-	}
+		req, err := http.NewRequest(http.MethodDelete, url, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNotFound {
-		return nil // idempotent delete
-	}
+		if resp.StatusCode == http.StatusNotFound {
+			return nil // idempotent delete
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		var apiResp apiResponse
-		json.NewDecoder(resp.Body).Decode(&apiResp)
-		return fmt.Errorf("failed to delete key, status: %d, error: %s", resp.StatusCode, apiResp.Error)
+		if resp.StatusCode != http.StatusOK {
+			var apiResp apiResponse
+			json.NewDecoder(resp.Body).Decode(&apiResp)
+			lastErr = fmt.Errorf("failed to delete key, status: %d, error: %s", resp.StatusCode, apiResp.Error)
+			continue
+		}
+		
+		return nil
 	}
-	return nil
+	
+	return fmt.Errorf("delete failed on all replicas. last error: %w", lastErr)
 }

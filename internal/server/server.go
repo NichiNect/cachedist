@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/NichiNect/cachedist/internal/cache"
+	"github.com/NichiNect/cachedist/internal/cluster"
 	"github.com/NichiNect/cachedist/internal/replication"
 )
 
@@ -13,7 +14,7 @@ type Server struct {
 }
 
 // NewServer creates a new HTTP Server instance.
-func NewServer(c cache.Cache, rep *replication.Replicator) *Server {
+func NewServer(c cache.Cache, rep *replication.Replicator, mgr *cluster.Manager) *Server {
 	mux := http.NewServeMux()
 	
 	mux.HandleFunc("/get", handleGet(c))
@@ -22,6 +23,10 @@ func NewServer(c cache.Cache, rep *replication.Replicator) *Server {
 	mux.HandleFunc("/stats", handleStats(c))
 	mux.HandleFunc("/keys", handleKeys(c))
 	mux.HandleFunc("/health", handleHealth())
+	
+	if mgr != nil {
+		mux.HandleFunc("/cluster/join", handleClusterJoin(mgr))
+	}
 	
 	return &Server{
 		mux: mux,

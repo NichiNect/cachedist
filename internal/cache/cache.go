@@ -22,6 +22,9 @@ type Cache interface {
 	
 	// Keys returns all keys currently in the cache.
 	Keys() []string
+	
+	// GetAllItems returns all items with their values and expirations.
+	GetAllItems() map[string]Item
 }
 
 // ShardedCache implements the Cache interface with multiple shards to reduce lock contention.
@@ -131,4 +134,15 @@ func (c *ShardedCache) Keys() []string {
 		allKeys = append(allKeys, shard.getKeys()...)
 	}
 	return allKeys
+}
+
+// GetAllItems aggregates all items from all shards.
+func (c *ShardedCache) GetAllItems() map[string]Item {
+	allItems := make(map[string]Item)
+	for _, shard := range c.shards {
+		for k, v := range shard.getAllItems() {
+			allItems[k] = v
+		}
+	}
+	return allItems
 }

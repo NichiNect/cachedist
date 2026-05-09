@@ -111,6 +111,22 @@ func (s *Shard) getKeys() []string {
 	return keys
 }
 
+// getAllItems returns all items in the shard.
+func (s *Shard) getAllItems() map[string]Item {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make(map[string]Item, len(s.items))
+	now := time.Now()
+	for key, item := range s.items {
+		// Only return non-expired items
+		if item.ExpiresAt.IsZero() || now.Before(item.ExpiresAt) {
+			items[key] = *item
+		}
+	}
+	return items
+}
+
 // count returns the number of items in the shard.
 func (s *Shard) count() int {
 	s.mu.RLock()

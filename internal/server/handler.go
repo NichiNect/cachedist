@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/NichiNect/cachedist/internal/cache"
+	"github.com/NichiNect/cachedist/internal/cluster"
 	"github.com/NichiNect/cachedist/internal/replication"
 )
 
@@ -148,8 +150,32 @@ func handleKeys(c cache.Cache) http.HandlerFunc {
 			return
 		}
 
-		keys := c.Keys()
-		sendJSON(w, http.StatusOK, keys, "")
+		items := c.GetAllItems()
+		
+		type itemResp struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+			TTL   int    `json:"ttl"`
+		}
+		
+		var responseData []itemResp
+		for key, item := range items {
+			var ttl int
+			if !item.ExpiresAt.IsZero() {
+				// Calculate remaining TTL
+				ttl = int(time.Until(item.ExpiresAt).Seconds())
+				if ttl < 0 {
+					continue // expired
+				}
+			}
+			responseData = append(responseData, itemResp{
+				Key:   key,
+				Value: string(item.Value),
+				TTL:   ttl,
+			})
+		}
+
+		sendJSON(w, http.StatusOK, responseData, "")
 	}
 }
 
@@ -161,5 +187,24 @@ func handleHealth() http.HandlerFunc {
 			return
 		}
 		sendJSON(w, http.StatusOK, "OK", "")
+	}
+}
+
+// handleClusterJoin handles POST /cluster/join
+func handleClusterJoin(mgr *cluster.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			sendJSON(w, http.StatusMethodNotAllowed, nil, "method not allowed")
+			return
+		}
+
+		var info cluster.NodeInfo
+		if err := json.NewDecoder(r.Body).Decode(&info); err != nil {
+			sendJSON(w, http.StatusBadRequest, nil, "invalid body")
+			return
+		}
+
+		mgr.RegisterNode(info)
+		sendJSON(w, http.StatusOK, "Registered", "")
 	}
 }
