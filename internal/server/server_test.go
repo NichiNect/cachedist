@@ -13,7 +13,7 @@ import (
 func TestServer_GetSet(t *testing.T) {
 	c := cache.NewShardedCache(4, 100, 30)
 	defer c.Stop()
-	srv := NewServer(c)
+	srv := NewServer(c, nil)
 
 	// Set value
 	setBody := `{"key": "test_key", "value": "test_value", "ttl": 0}`

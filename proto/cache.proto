@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package cache;
+
+option go_package = "github.com/NichiNect/cachedist/pkg/pb";
+
+service CacheService {
+  rpc Replicate(ReplicateRequest) returns (ReplicateResponse);
+}
+
+enum Operation {
+  SET = 0;
+  DELETE = 1;
+}
+
+message ReplicateRequest {
+  string key = 1;
+  string value = 2;
+  int64 ttl_seconds = 3;
+  Operation operation = 4;
+}
+
+message ReplicateResponse {
+  bool ok = 1;
+  string error = 2;
+}

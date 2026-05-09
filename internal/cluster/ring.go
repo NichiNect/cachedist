@@ -84,3 +84,40 @@ func (r *HashRing) GetNode(key string) string {
 
 	return r.nodes[r.sorted[idx]]
 }
+
+// GetNodes returns the top N unique physical nodes for a key.
+func (r *HashRing) GetNodes(key string, count int) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if len(r.sorted) == 0 {
+		return nil
+	}
+
+	hash := fnv32(key)
+	idx := sort.Search(len(r.sorted), func(i int) bool {
+		return r.sorted[i] >= hash
+	})
+
+	if idx == len(r.sorted) {
+		idx = 0
+	}
+
+	var nodes []string
+	seen := make(map[string]bool)
+
+	for i := 0; i < len(r.sorted); i++ {
+		currIdx := (idx + i) % len(r.sorted)
+		nodeAddr := r.nodes[r.sorted[currIdx]]
+
+		if !seen[nodeAddr] {
+			nodes = append(nodes, nodeAddr)
+			seen[nodeAddr] = true
+			if len(nodes) == count {
+				break
+			}
+		}
+	}
+
+	return nodes
+}

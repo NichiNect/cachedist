@@ -3,8 +3,10 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/NichiNect/cachedist/internal/cache"
+	"github.com/NichiNect/cachedist/internal/replication"
 )
 
 // Response represents the standard API response format.
@@ -55,7 +57,7 @@ type setRequest struct {
 }
 
 // handleSet handles POST /set
-func handleSet(c cache.Cache) http.HandlerFunc {
+func handleSet(c cache.Cache, rep *replication.Replicator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			sendJSON(w, http.StatusMethodNotAllowed, nil, "method not allowed")
@@ -79,12 +81,23 @@ func handleSet(c cache.Cache) http.HandlerFunc {
 			return
 		}
 
+		if rep != nil {
+			replicatedTo, err := rep.Replicate(req.Key, req.Value, req.TTL, false)
+			if err != nil {
+				sendJSON(w, http.StatusInternalServerError, nil, "replication failed: "+err.Error())
+				return
+			}
+			if len(replicatedTo) > 0 {
+				w.Header().Set("X-Replicated-To", strings.Join(replicatedTo, ","))
+			}
+		}
+
 		sendJSON(w, http.StatusOK, "OK", "")
 	}
 }
 
 // handleDelete handles DELETE /delete?key={key}
-func handleDelete(c cache.Cache) http.HandlerFunc {
+func handleDelete(c cache.Cache, rep *replication.Replicator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			sendJSON(w, http.StatusMethodNotAllowed, nil, "method not allowed")
@@ -98,6 +111,18 @@ func handleDelete(c cache.Cache) http.HandlerFunc {
 		}
 
 		c.Delete(key)
+
+		if rep != nil {
+			replicatedTo, err := rep.Replicate(key, "", 0, true)
+			if err != nil {
+				sendJSON(w, http.StatusInternalServerError, nil, "replication failed: "+err.Error())
+				return
+			}
+			if len(replicatedTo) > 0 {
+				w.Header().Set("X-Replicated-To", strings.Join(replicatedTo, ","))
+			}
+		}
+
 		sendJSON(w, http.StatusOK, "OK", "")
 	}
 }

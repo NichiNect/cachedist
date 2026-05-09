@@ -2,15 +2,20 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/NichiNect/cachedist/config"
 	"github.com/NichiNect/cachedist/internal/cache"
+	"github.com/NichiNect/cachedist/internal/cluster"
+	"github.com/NichiNect/cachedist/internal/grpc"
+	"github.com/NichiNect/cachedist/internal/replication"
 	"github.com/NichiNect/cachedist/internal/server"
 )
 
@@ -22,7 +27,25 @@ func main() {
 	c := cache.NewShardedCache(cfg.NumShards, cfg.MaxItems, cfg.TTLCleanup)
 	defer c.Stop()
 	
-	srv := server.NewServer(c)
+	ring := cluster.NewHashRing()
+	selfAddr := fmt.Sprintf("127.0.0.1:%s", cfg.GRPCPort) // assuming localhost for peers
+	ring.AddNode(cfg.NodeID, selfAddr)
+
+	if cfg.Peers != "" {
+		peers := strings.Split(cfg.Peers, ",")
+		for i, peer := range peers {
+			// A simple way to generate node IDs for peers, e.g., peer-0, peer-1
+			ring.AddNode(fmt.Sprintf("peer-%d", i), peer)
+		}
+	}
+
+	rep := replication.NewReplicator(ring, selfAddr)
+
+	go func() {
+		grpcserver.StartServer(":"+cfg.GRPCPort, c)
+	}()
+
+	srv := server.NewServer(c, rep)
 
 	httpServer := &http.Server{
 		Addr:    ":" + cfg.HTTPPort,

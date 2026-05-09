@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/NichiNect/cachedist/internal/cache"
+	"github.com/NichiNect/cachedist/internal/replication"
 )
 
 // Server represents the HTTP server for the cache.
@@ -12,12 +13,12 @@ type Server struct {
 }
 
 // NewServer creates a new HTTP Server instance.
-func NewServer(c cache.Cache) *Server {
+func NewServer(c cache.Cache, rep *replication.Replicator) *Server {
 	mux := http.NewServeMux()
 	
 	mux.HandleFunc("/get", handleGet(c))
-	mux.HandleFunc("/set", handleSet(c))
-	mux.HandleFunc("/delete", handleDelete(c))
+	mux.HandleFunc("/set", handleSet(c, rep))
+	mux.HandleFunc("/delete", handleDelete(c, rep))
 	mux.HandleFunc("/stats", handleStats(c))
 	mux.HandleFunc("/keys", handleKeys(c))
 	mux.HandleFunc("/health", handleHealth())
