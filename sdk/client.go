@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/NichiNect/cachedist/internal/cluster"
@@ -24,7 +25,7 @@ func NewClient(nodeAddresses []string) *Client {
 		// This ensures the SDK and all Servers have the exact same HashRing mapping
 		grpcAddr := strings.Replace(addr, "700", "800", 1)
 		grpcAddr = strings.Replace(grpcAddr, "localhost", "127.0.0.1", 1)
-		
+
 		ring.AddNode(grpcAddr, addr) // using grpcAddr as NodeID, but storing HTTP addr for the client to hit
 		httpClients[addr] = &http.Client{
 			Timeout: 5 * time.Second,
@@ -133,7 +134,7 @@ func (c *Client) Get(key string) (string, bool, error) {
 		if valStr, ok := apiResp.Data.(string); ok {
 			return valStr, true, nil
 		}
-		
+
 		lastErr = fmt.Errorf("unexpected data format")
 	}
 
@@ -174,9 +175,9 @@ func (c *Client) Delete(key string) error {
 			lastErr = fmt.Errorf("failed to delete key, status: %d, error: %s", resp.StatusCode, apiResp.Error)
 			continue
 		}
-		
+
 		return nil
 	}
-	
+
 	return fmt.Errorf("delete failed on all replicas. last error: %w", lastErr)
 }
