@@ -120,38 +120,3 @@ func TestShardedCache_ParallelReadWrite(t *testing.T) {
 
 	wg.Wait()
 }
-
-func BenchmarkCache_Set(b *testing.B) {
-	c := NewShardedCache(256, 1000000, 30)
-	defer c.Stop()
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			key := "key-" + strconv.Itoa(i)
-			c.Set(key, "value", 0)
-			i++
-		}
-	})
-}
-
-func BenchmarkCache_Get(b *testing.B) {
-	c := NewShardedCache(256, 1000000, 30)
-	defer c.Stop()
-
-	// Pre-fill some keys
-	for i := 0; i < 1000; i++ {
-		c.Set("key-"+strconv.Itoa(i), "value", 0)
-	}
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			key := "key-" + strconv.Itoa(i%1000)
-			c.Get(key)
-			i++
-		}
-	})
-}

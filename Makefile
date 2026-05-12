@@ -16,7 +16,16 @@ test:
 	go test -v ./...
 
 bench:
-	go test -bench=. ./... --benchmem
+	go test -bench=. ./internal/cache/... --benchmem
+
+bench-compare:
+	go test -bench=. ./bench/redis_comparison_test.go --benchmem
+
+load-test:
+	go test -v ./bench/load_test.go -run TestLoadScenario
+
+chaos-test:
+	go test -v ./bench/chaos_test.go -run TestChaosScenario
 
 docker-up:
 	docker-compose -f docker/docker-compose.yml up -d --build

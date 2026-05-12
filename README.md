@@ -46,6 +46,11 @@ Each node stores data across 256 internal shards, each with its own `RWMutex` fo
 - **Write Quorum** — a write succeeds only when 2 out of N nodes confirm (configurable)
 - **Health Check & Auto-Recovery** — nodes exchange heartbeats every 5 seconds. Dead nodes are removed from the ring and re-integrated after recovery
 - **Prometheus Metrics** — hit rate, latency histograms, eviction count, and memory usage exposed at `/metrics`
+- **Grafana Dashboard** — pre-configured visualization for real-time cluster monitoring
+
+![Grafana Dashboard](grafana_dashboard.png)
+_Real-time monitoring showing cache hits across 3 nodes during the load test._
+
 - **HTTP API** — simple JSON API for easy integration and manual testing with `curl`
 
 ***
@@ -140,28 +145,57 @@ This project was built incrementally in 7 steps. Each step is a fully runnable m
 
 ## Benchmarks
 
-Run benchmarks:
-```bash
-make bench
-```
+Benchmarks were performed on an **AMD Ryzen 7 5825U** (8 cores, 16 threads) with 16GB RAM.
 
-Sample results (MacBook M2, 3 local nodes):
+### Go Internal Benchmarks
+These measure the raw performance of the sharded cache engine (single-node, no network).
 
-```
-BenchmarkCache_Get-8        5000000    245 ns/op    0 allocs/op
-BenchmarkCache_Set-8        3000000    412 ns/op    1 allocs/op
-BenchmarkCache_Parallel-8  10000000    138 ns/op    0 allocs/op
-```
+| Benchmark | Operations | Latency | Memory/Op |
+|-----------|------------|---------|-----------|
+| `Get` (Single) | ~12.1M ops/s | 95.8 ns/op | 16 B/op |
+| `Set` (Single) | ~1.0M ops/s | 1200 ns/op | 337 B/op |
+| `Get` (Parallel) | ~7.3M ops/s | 165.6 ns/op | 16 B/op |
+| `Set` (Parallel) | ~8.4M ops/s | 153.7 ns/op | 111 B/op |
+| `Mixed (80/20)` | ~12.0M ops/s | 100.5 ns/op | 34 B/op |
 
-Redis comparison (same machine, `redis-benchmark`):
-```
-SET: ~180,000 ops/sec
-GET: ~220,000 ops/sec
+### Comparison: cachedist vs Redis
+This compares a single-node `cachedist` (in-process) against a standard Redis container accessed via `go-redis` client.
 
-cachedist:
-SET: ~150,000 ops/sec (single node)
-GET: ~200,000 ops/sec (single node)
-```
+| Operation | cachedist (Internal) | Redis (via Network) |
+|-----------|----------------------|---------------------|
+| **SET** | ~1.2M ops/sec | ~3.5k ops/sec |
+| **GET** | ~12.5M ops/sec | ~3.6k ops/sec |
+
+> **Note on Latency**: The massive difference is due to `cachedist` being tested as an in-process library, whereas Redis involves network syscalls, serialization, and container overhead. In a real-world networked scenario (see Load Test), the gap narrows.
+
+### Distributed Load Test
+Tested on a **3-node cluster** (Docker) with a replication factor of 2, using the SDK with 10 concurrent goroutines.
+
+- **Total Operations**: 100,000
+- **Workload**: 70% GET, 20% SET, 10% DELETE
+- **Throughput**: **1,163.47 ops/sec**
+- **Error Rate**: **0.00%**
+- **Average Latency**: ~8.6ms per request (including inter-node replication)
+
+### Chaos Test (Node Failure Resilience)
+Simulated a sudden node failure during active background load (5 concurrent workers).
+
+- **Total Operations**: 4,756
+- **Action**: `docker stop node2` while traffic was running.
+- **Error Rate while Node Down**: **0.00%** (SDK automatically failed over to replicas).
+- **Recovery**: Node rejoined and synchronized data without manual intervention.
+
+***
+
+## What I Learned
+
+Building this project taught me several critical lessons about distributed systems and Go:
+
+1. **Lock Contention is a Silent Killer**: In early versions, a single global mutex crippled performance. Implementing 256 shards drastically improved parallel throughput by allowing goroutines to work on different parts of the keyspace simultaneously.
+2. **Consistent Hashing is Elegant**: It's the "magic" that makes horizontal scaling possible without reshuffling the entire database. Implementing virtual nodes showed me how to achieve a uniform data distribution across nodes.
+3. **Replication Trade-offs**: Implementing synchronous replication (quorum) showed the clear trade-off between consistency and latency. Every write becomes slower because it has to wait for a network ACK from a peer.
+4. **Observability is Non-Negotiable**: Without Prometheus and Grafana, debugging why a node was "stuck" or measuring the impact of a change was guesswork. Metrics turned black-box behavior into actionable data.
+5. **Docker Networking Gotchas**: I learned the hard way that `127.0.0.1` inside a container isn't the same as the host's `localhost`, which forced me to implement a more robust node discovery and advertisement mechanism.
 
 ***
 

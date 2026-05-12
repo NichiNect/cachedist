@@ -32,13 +32,20 @@ func main() {
 	defer c.Stop()
 	
 	ring := cluster.NewHashRing()
-	selfAddr := fmt.Sprintf("127.0.0.1:%s", cfg.GRPCPort) // assuming localhost for peers
-	ring.AddNode(selfAddr, selfAddr) // Use GRPC address as the consistent NodeID
+	
+	// Determine the host to advertise. Use NodeID if it's not the default "node-1"
+	// (which usually means we are in Docker or a custom setup)
+	advertiseHost := "127.0.0.1"
+	if cfg.NodeID != "node-1" {
+		advertiseHost = cfg.NodeID
+	}
+	
+	selfAddr := fmt.Sprintf("%s:%s", advertiseHost, cfg.GRPCPort)
+	ring.AddNode(selfAddr, selfAddr) 
 
 	if cfg.Peers != "" {
 		peers := strings.Split(cfg.Peers, ",")
 		for _, peer := range peers {
-			// Use the peer's GRPC address as the NodeID to ensure all nodes build an identical HashRing
 			ring.AddNode(peer, peer)
 		}
 	}
@@ -55,7 +62,7 @@ func main() {
 		
 		info := cluster.NodeInfo{
 			ID:       cfg.NodeID,
-			HTTPAddr: "127.0.0.1:" + cfg.HTTPPort,
+			HTTPAddr: fmt.Sprintf("%s:%s", advertiseHost, cfg.HTTPPort),
 			GRPCAddr: selfAddr,
 		}
 		infoData, _ := json.Marshal(info)
@@ -63,10 +70,13 @@ func main() {
 		for i, peer := range peers {
 			peerID := fmt.Sprintf("peer-%d", i)
 			
+			peerParts := strings.Split(peer, ":")
+			peerHost := peerParts[0]
+			peerGRPCPort := peerParts[1]
+			
 			// For local testing, we assume peer HTTP port is peer GRPC port - 1000
-			// In a real app, this mapping should be explicitly configured
-			peerHTTPPort := strings.Replace(strings.Split(peer, ":")[1], "8", "7", 1)
-			peerHTTPAddr := fmt.Sprintf("127.0.0.1:%s", peerHTTPPort)
+			peerHTTPPort := strings.Replace(peerGRPCPort, "8", "7", 1)
+			peerHTTPAddr := fmt.Sprintf("%s:%s", peerHost, peerHTTPPort)
 			
 			mgr.RegisterNode(cluster.NodeInfo{
 				ID:       peerID,
