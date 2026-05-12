@@ -1,4 +1,4 @@
-.PHONY: run-node1 build test bench
+.PHONY: run-node1 build test bench docker-up docker-down
 
 build:
 	go build -o bin/server ./cmd/server
@@ -17,3 +17,9 @@ test:
 
 bench:
 	go test -bench=. ./... --benchmem
+
+docker-up:
+	docker-compose -f docker/docker-compose.yml up -d --build
+
+docker-down:
+	docker-compose -f docker/docker-compose.yml down

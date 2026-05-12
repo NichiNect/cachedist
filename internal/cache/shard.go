@@ -3,6 +3,8 @@ package cache
 import (
 	"sync"
 	"time"
+
+	"github.com/NichiNect/cachedist/internal/metrics"
 )
 
 // Shard handles a segment of the overall cache, managing its own locks and LRU list.
@@ -31,19 +33,28 @@ func (s *Shard) Set(key string, item *Item) {
 
 	// If key already exists, update item and move to front
 	if node, exists := s.nodes[key]; exists {
+		oldLen := len(s.items[key].Value)
 		s.items[key] = item
 		s.lru.MoveToFront(node)
+		metrics.AddMemory(float64(len(item.Value) - oldLen))
 		return
 	}
 
 	// Add new item
 	s.items[key] = item
 	s.nodes[key] = s.lru.PushFront(key)
+	metrics.AddItems(1)
+	metrics.AddMemory(float64(len(item.Value)))
 
 	// Evict if over capacity
 	if s.maxItems > 0 && len(s.items) > s.maxItems {
 		tail := s.lru.RemoveTail()
 		if tail != nil {
+			oldItem := s.items[tail.Key]
+			metrics.AddItems(-1)
+			metrics.AddMemory(-float64(len(oldItem.Value)))
+			metrics.IncEviction()
+
 			delete(s.items, tail.Key)
 			delete(s.nodes, tail.Key)
 		}
@@ -57,18 +68,21 @@ func (s *Shard) Get(key string) (*Item, bool) {
 
 	item, exists := s.items[key]
 	if !exists {
+		metrics.IncMiss()
 		return nil, false
 	}
 
 	// Lazy deletion
 	if item.IsExpired() {
 		s.deleteLocked(key)
+		metrics.IncMiss()
 		return nil, false
 	}
 
 	node := s.nodes[key]
 	s.lru.MoveToFront(node)
-	
+
+	metrics.IncHit()
 	return item, true
 }
 
@@ -81,6 +95,10 @@ func (s *Shard) Delete(key string) {
 
 func (s *Shard) deleteLocked(key string) {
 	if node, exists := s.nodes[key]; exists {
+		oldItem := s.items[key]
+		metrics.AddItems(-1)
+		metrics.AddMemory(-float64(len(oldItem.Value)))
+
 		s.lru.Remove(node)
 		delete(s.nodes, key)
 		delete(s.items, key)

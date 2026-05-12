@@ -8,6 +8,7 @@ import (
 
 	"github.com/NichiNect/cachedist/internal/cache"
 	"github.com/NichiNect/cachedist/internal/cluster"
+	"github.com/NichiNect/cachedist/internal/metrics"
 	"github.com/NichiNect/cachedist/internal/replication"
 )
 
@@ -208,3 +209,14 @@ func handleClusterJoin(mgr *cluster.Manager) http.HandlerFunc {
 		sendJSON(w, http.StatusOK, "Registered", "")
 	}
 }
+
+// instrumentedHandler wraps an http.HandlerFunc to record its duration.
+func instrumentedHandler(name string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		h.ServeHTTP(w, r)
+		duration := time.Since(start).Seconds()
+		metrics.ObserveRequest(name, duration)
+	}
+}
+

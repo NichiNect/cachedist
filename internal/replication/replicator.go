@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/NichiNect/cachedist/internal/metrics"
 	"github.com/NichiNect/cachedist/internal/cluster"
 	"github.com/NichiNect/cachedist/internal/grpc"
 	"github.com/NichiNect/cachedist/pkg/pb"
@@ -93,8 +94,10 @@ func (r *Replicator) Replicate(key, value string, ttl int, isDelete bool) ([]str
 
 	// Quorum is 1 replica ACK (since primary wrote locally, total 2)
 	if ackCount < 1 && len(replicas) > 0 {
+		metrics.IncReplicationFailure()
 		return nil, log.Output(2, "replication quorum failed: 0 acks received")
 	}
 
+	metrics.IncReplicationSuccess()
 	return replicatedTo, nil
 }

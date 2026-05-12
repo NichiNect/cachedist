@@ -17,12 +17,14 @@ import (
 	"github.com/NichiNect/cachedist/internal/cache"
 	"github.com/NichiNect/cachedist/internal/cluster"
 	"github.com/NichiNect/cachedist/internal/grpc"
+	"github.com/NichiNect/cachedist/internal/metrics"
 	"github.com/NichiNect/cachedist/internal/replication"
 	"github.com/NichiNect/cachedist/internal/server"
 )
 
 func main() {
 	cfg := config.Load()
+	metrics.NodeID = cfg.NodeID
 
 	log.Printf("Starting cachedist node %s...", cfg.NodeID)
 

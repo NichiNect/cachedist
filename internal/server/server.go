@@ -6,6 +6,7 @@ import (
 	"github.com/NichiNect/cachedist/internal/cache"
 	"github.com/NichiNect/cachedist/internal/cluster"
 	"github.com/NichiNect/cachedist/internal/replication"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server represents the HTTP server for the cache.
@@ -17,15 +18,17 @@ type Server struct {
 func NewServer(c cache.Cache, rep *replication.Replicator, mgr *cluster.Manager) *Server {
 	mux := http.NewServeMux()
 	
-	mux.HandleFunc("/get", handleGet(c))
-	mux.HandleFunc("/set", handleSet(c, rep))
-	mux.HandleFunc("/delete", handleDelete(c, rep))
-	mux.HandleFunc("/stats", handleStats(c))
-	mux.HandleFunc("/keys", handleKeys(c))
-	mux.HandleFunc("/health", handleHealth())
+	mux.HandleFunc("/get", instrumentedHandler("get", handleGet(c)))
+	mux.HandleFunc("/set", instrumentedHandler("set", handleSet(c, rep)))
+	mux.HandleFunc("/delete", instrumentedHandler("delete", handleDelete(c, rep)))
+	mux.HandleFunc("/stats", instrumentedHandler("stats", handleStats(c)))
+	mux.HandleFunc("/keys", instrumentedHandler("keys", handleKeys(c)))
+	mux.HandleFunc("/health", instrumentedHandler("health", handleHealth()))
+	
+	mux.Handle("/metrics", promhttp.Handler())
 	
 	if mgr != nil {
-		mux.HandleFunc("/cluster/join", handleClusterJoin(mgr))
+		mux.HandleFunc("/cluster/join", instrumentedHandler("cluster_join", handleClusterJoin(mgr)))
 	}
 	
 	return &Server{
