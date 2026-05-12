@@ -74,6 +74,15 @@ services:
     depends_on:
       - prometheus
 
+  # Redis service for comparison benchmarks
+  # redis:
+  #   image: redis:alpine
+  #   container_name: redis
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - cachedist
+
 networks:
   cachedist:
     driver: bridge
